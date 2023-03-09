@@ -1,0 +1,378 @@
+---
+title: "Computations with incremental SVM models"
+author: "To be included"
+date: "2022-12-18"
+output:
+  html_document:
+     self_contained: false
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(ggplot2)
+library(stringr)
+source("common.R")
+knitr::opts_chunk$set(echo = TRUE)
+
+
+
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+## Linear models of time complexity 
+
+
+### OVA Results 
+
+```{r complexity}
+load("data.frames/complexity.RData")
+df2 <- df.complexity %>% filter(split == "ova")
+df <- df2 %>% group_by(N) %>% summarize(mtime = mean(time))
+mod_ova <- lm(log(mtime) ~log(N), data = df)
+print(summary(mod_ova))
+```
+
+
+### ECOC Results 
+
+```{r complexity-ecoc}
+load("data.frames/complexity.RData")
+df4 <- df.complexity %>% filter(split == "ecoc")
+df <- df4 %>% group_by(N) %>% summarize(mtime = mean(time))
+mod_ecoc <- lm(log(mtime) ~log(N), data = df)
+print(summary(mod_ecoc))
+```
+## On the gap between minimal and maximal models
+
+```{r table3.1}
+summary_fn3 <- function( x, dir) {
+    return(sprintf("%.1f (%.1f)", mean(x),
+                   sd(x)
+                       ))
+}
+
+
+load("data.frames/test3gap.RData")
+data3.1 <- df.test3gap %>%   pivot_wider(names_from = model) %>%  rename(b = `best minimal`, m =`mean minimal`, w = WLW2) %>% mutate(b = 100*(test_cases - b)/test_cases,
+          m = 100*(test_cases - m)/test_cases, w =100* (test_cases - w)/ test_cases)
+table3.1 <- data3.1 %>% group_by(dataset, kernel) %>% summarize(summary_fn3(m, dir),
+                            summary_fn3(w, dir),   summary_fn3(b, dir), .groups = 'drop')
+
+kable(table3.1)
+
+```
+
+## On the choice of minimal model
+
+```{r table3.2}
+load("data.frames/test5.RData")
+err <- function(x, test_cases) 100 * (test_cases - x) /test_cases
+
+data3.2 <- df.test5 %>% mutate(value = err(value, test_cases)) %>%
+          pivot_wider(names_from = model, id_cols = c("run_id", "dir", "dataset", "kernel"))
+table3.2 <- data3.2 %>% 
+   group_by(dataset, kernel) %>% summarize(summary_fn3(G4, dir), summary_fn3(G3, dir), summary_fn3(G2, dir), .groups = 'drop')
+kable(table3.2)
+```
+
+## Estimation of missing pairwise likelihoods
+
+### Correlation
+```{r table3.3A}
+load("data.frames/test4coll.RData")
+
+summary_fn2 <- function(x) {
+    return(sprintf("%.3f (%.3f)", mean(x), sd(x)))
+}
+table3.3A <- df.test4coll %>% group_by(dataset,kernel) %>% summarize(coll = summary_fn2(value), .groups = 'drop')
+kable(table3.3A)
+```
+
+
+
+### Mean vs median
+```{r table3.3B}
+load("data.frames/test6.RData")
+data3.3B <- df.test6 %>% filter(metric == "Accuracy") %>% mutate(value = err(value, test_cases)) %>%
+  group_by(run_id, dir, kernel, dataset) %>%
+  pivot_wider(names_from = model, id_cols = c("run_id", "dir", "dataset", "kernel"))  
+
+table3.3B <- data3.3B %>% 
+   group_by(dataset, kernel) %>% summarize(summary_fn3(median, dir), 
+                                           summary_fn3(mean, dir), .groups = 'drop')
+kable(table3.3B)
+```
+
+
+## On the choice of additional edge
+```{r table3.4}
+load("data.frames/test4add.RData")
+data3.4 <- df.test4add %>% filter(metric == "Accuracy") %>% mutate(value = err(value, test_cases)) %>%
+  group_by(i,j,k, l, dir, kernel, dataset) %>%
+pivot_wider(names_from = model)  
+  
+table3.4 <- data3.4  %>%  group_by(dataset, kernel) %>% summarize(summary_fn3(D1, dir), summary_fn3(D2, dir), summary_fn3(D3, dir), .groups = 'drop')
+kable(table3.4)
+```
+
+
+## Accuracy dependence on the choice of validation dataset
+
+```{r ev10, fig=TRUE, fig.asp = 0.5, dev = c("png", "pdf")}
+load("data.frames/ev10.RData")
+dsm <- str_match(df.ev10$dir, "(\\w+|-)/.*")
+df.ev10$dataset = dsm[,2]
+df.ev10$test_cases =  case_when(df.ev10$model == "max4-edge" ~ 2000,
+                                df.ev10$dataset == "cifar10" ~ 10000,
+                          TRUE ~ 500)
+                          
+df.ev10$nn_test_cases = case_when(df.ev10$dataset == "cifar10" ~ 10000,
+                          TRUE ~ 500)
+
+df <- df.ev10 %>% filter(model != "max4-edge") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(accuracy = mean(WLW2 /test_cases), nn = mean(nn/nn_test_cases), .groups = 'drop')
+
+
+linetypes <- c( "max1-edge"= 1, "max3-edge"= 0,
+               "max2-edge"= 4)
+
+shapetypes <- c( "max1-edge"= NA, "max3-edge"= 18,
+               "max2-edge"= NA)
+
+colortypes <- c( "max1-edge"= "lightgreen", "max3-edge"= "purple",
+               "max2-edge"= "blue")
+
+dfs <- df %>% filter(model == "max3-edge" & (n_edges %% 2 == 1))
+
+ggplot(df, aes( x= n_edges, y = accuracy, color = model, linetype = model)) + geom_line(aes(linetype = model), size = 1) +
+  geom_point(data = dfs, aes(shape = model), size = 2) +
+  xlab("number of edges") +
+  geom_hline(aes(yintercept = nn), size = 1, linetype="dotted") + facet_grid(rows = vars(dataset), cols = vars(kernel), scales = "free_y") +theme(text=element_text(size=14), legend.text = element_text(size = 12)) +
+  scale_linetype_manual(name = "model", values = linetypes ) + 
+  scale_shape_manual(name = "model", values = shapetypes) + 
+  scale_color_manual(name = "model", values = colortypes)+ theme_bw() +
+theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(), 
+     text=element_text(size=14), 
+    legend.text = element_text(size = 13)
+    )
+```
+
+## Incremental models
+
+### Accuracy of incremental models on ten-class datasets
+
+```{r inc10, fig=TRUE, dev = c("png", "pdf"), cache=TRUE}
+load("data.frames/inc10.RData")
+load("data.frames/graph10.RData")
+dsm <- str_match(df.inc10$dir, "(\\w+)/.*")
+df.inc10$dataset = dsm[,2]
+df.inc10$test_cases =  case_when(df.inc10$dataset == "cifar10" ~ 10000,
+                          TRUE ~ 500)
+                          
+df <- df.inc10 %>% filter(model != "max2-edge") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(accuracy = mean(WLW2 /test_cases), nn = mean(nn/test_cases), .groups = 'drop')
+
+
+df2 <- df.graph10 %>% filter(metric == "Accuracy") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(accuracy = mean(value/test_cases), .groups = 'drop')
+
+
+df$kernel = factor(df$kernel, levels = c("linear", "radial"))
+
+linetypes <- c("Petersen" = 0, "K5-5" = 0, "max1-edge"= 2, "random-edge"= 1,
+               "random-star" = 5)
+
+shapetypes <- c("Petersen" = 18, "K5-5" = 16, "max1-edge"= NA, "random-edge"= NA,
+                "random-star" = NA)
+
+colortypes <- c("Petersen" = "black", "K5-5" = "black", "max1-edge"= "darkgreen", "random-edge"= "purple",
+               "random-star" = "red")
+
+text.size = 9
+legend.size = 8
+
+ggplot(df, aes( x= n_edges, y = accuracy, color = model, linetype = model)) + geom_line(aes(linetype = model)) +
+  geom_hline(aes(yintercept = nn), linetype="dotted") + 
+facet_grid(rows = vars(dataset), cols = vars(kernel), scales = "free_y") +   geom_point(data = df2, mapping = aes(x= n_edges, y = accuracy, shape = model), show.legend = NA, size = 2) +
+  scale_linetype_manual(name = "model", values = linetypes ) + 
+  scale_shape_manual(name = "model", values = shapetypes) + 
+  scale_color_manual(name = "model", values = colortypes) + 
+  xlab("number of edges")+
+  theme_bw() +
+theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    text=element_text(size=text.size), 
+    legend.text = element_text(size = legend.size)
+    )
+```
+
+
+## Not in paper: variance of mean accuracy for ten-class datasets
+
+```{r sd10, fig=TRUE, dev = c("png", "pdf"), cache=TRUE}
+load("data.frames/inc10.RData")
+load("data.frames/graph10.RData")
+dsm <- str_match(df.inc10$dir, "(\\w+)/.*")
+df.inc10$dataset = dsm[,2]
+df.inc10$test_cases =  case_when(df.inc10$dataset == "cifar10" ~ 10000,
+                          TRUE ~ 500)
+                          
+df <- df.inc10 %>% group_by(n_edges, model, kernel, dataset) %>% summarize(std_error = sd(WLW2 /test_cases), nn = mean(nn/test_cases), .groups = 'drop')
+
+
+df2 <- df.graph10 %>% filter(metric == "Accuracy") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(std_error = sd(value/test_cases), .groups = 'drop')
+
+
+df$kernel = factor(df$kernel, levels = c("linear", "radial"))
+
+linetypes <- c("Petersen" = 0, "K5-5" = 0, "max1-edge"= 2, "random-edge"= 1,
+               "max2-edge"= 4, "random-star" = 5)
+
+shapetypes <- c("Petersen" = 18, "K5-5" = 16, "max1-edge"= NA, "random-edge"= NA,
+               "max2-edge"= NA, "random-star" = NA)
+
+colortypes <- c("Petersen" = "black", "K5-5" = "black", "max1-edge"= "darkgreen", "random-edge"= "purple",
+               "max2-edge"= "blue", "random-star" = "red")
+
+ggplot(df, aes( x= n_edges, y = std_error, color = model, linetype = model)) + geom_line(aes(linetype = model)) +
+#  geom_hline(aes(yintercept = nn), linetype="dotted") + 
+facet_grid(rows = vars(dataset), cols = vars(kernel), scales = "free_y") +   geom_point(data = df2, mapping = aes(x= n_edges, y = std_error, shape = model), show.legend = NA, size = 2) +
+  scale_linetype_manual(name = "model", values = linetypes ) + 
+  scale_shape_manual(name = "model", values = shapetypes) + 
+  scale_color_manual(name = "model", values = colortypes) + xlab("number of edges")+ theme_bw() +
+theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank()
+    )
+```
+
+### Accuracy of incremental models on Imagenet-50
+
+```{r inc50, fig = TRUE, fig.width=7, fig.height = 2.3, dev=c("png", "pdf")}
+load("data.frames/inc50.RData")
+load("data.frames/graph50.RData")
+
+df.inc10 <- inc_df
+dsm <- str_match(df.inc10$dir, "((\\w|-)+)/.*")
+df.inc10$dataset = dsm[,2]
+df.inc10$test_cases =  case_when(df.inc10$dataset == "cifar10" ~ 10000,
+                          TRUE ~ 2500)
+                          
+df <- df.inc10 %>% filter(model != "max2-edge") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(accuracy = mean(WLW2 /test_cases), nn = mean(nn/test_cases), .groups = 'drop')
+
+df.graph$dataset = "imagenet-50"
+df2 <- df.graph %>% filter(metric == "Accuracy") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(accuracy = mean(value/test_cases), .groups = 'drop')
+df2$shape = as.factor(case_when(df2$model == "Hof-Sing" ~ 5,
+                      TRUE ~ 6))
+
+
+df$kernel = factor(df$kernel, levels = c("linear", "radial"))
+
+linetypes <- c("Hof-Sing" = 0, "K25-25" = 0, "max1-edge"= 2, "random-edge"= 1,
+               "random-star" = 5)
+
+shapetypes <- c("Hof-Sing" = 18, "K25-25" = 16, "max1-edge"= NA, "random-edge"= NA,
+             "random-star" = NA)
+
+colortypes <- c("Hof-Sing" = "black", "K25-25" = "black", "max1-edge"= "darkgreen", "random-edge"= "purple",
+                "random-star" = "red")
+
+
+ggplot(df, aes( x= n_edges, y = accuracy, color = model, linetype = model,shapetype = model)) + 
+  geom_line()  + 
+  geom_hline(aes(yintercept = nn), linetype="dotted", size=0.7)  + 
+  geom_point(data = df2, mapping = aes(x= n_edges, y = accuracy, shape = model), show.legend = NA, size = 2) +
+facet_grid(rows = vars(dataset), cols = vars(kernel), scales = "free_y") +
+  scale_linetype_manual(name = "model", values = linetypes ) + 
+  scale_shape_manual(name = "model", values = shapetypes) + 
+  scale_color_manual(name = "model", values = colortypes) + 
+  xlab("number of edges")+
+  theme_bw() +
+theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    text=element_text(size=text.size), 
+    legend.text = element_text(size = legend.size)
+    )
+```
+
+### On the variance of accuracy of incremental models on Imagenet-50
+
+```{r sd50, fig = TRUE, fig.width=7, fig.height = 2.3, dev=c( "png", "pdf")}
+load("data.frames/inc50.RData")
+load("data.frames/graph50.RData")
+
+df.inc10 <- inc_df
+dsm <- str_match(df.inc10$dir, "((\\w|-)+)/.*")
+df.inc10$dataset = dsm[,2]
+df.inc10$test_cases =  case_when(df.inc10$dataset == "cifar10" ~ 10000,
+                          TRUE ~ 2500)
+                          
+df <- df.inc10 %>% filter(model != "max2-edge") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(std_dev = sd(WLW2 /test_cases), sd = sd(nn/test_cases), .groups = 'drop')
+
+df.graph$dataset = "imagenet-50"
+df2 <- df.graph %>% filter(metric == "Accuracy") %>% group_by(n_edges, model, kernel, dataset) %>% summarize(std_dev = sd(value/test_cases), .groups = 'drop')
+df2$shape = as.factor(case_when(df2$model == "Hof-Sing" ~ 5,
+                      TRUE ~ 6))
+
+df$kernel = factor(df$kernel, levels = c("linear", "radial"))
+
+linetypes <- c("Hof-Sing" = 0, "K25-25" = 0, "max1-edge"= 2, "random-edge"= 1,
+               "random-star" = 5)
+
+shapetypes <- c("Hof-Sing" = 18, "K25-25" = 16, "max1-edge"= NA, "random-edge"= NA,
+              "random-star" = NA)
+
+colortypes <- c("Hof-Sing" = "black", "K25-25" = "black", "max1-edge"= "darkgreen", "random-edge"= "purple",
+                "random-star" = "red")
+
+
+ggplot(df, aes( x= n_edges, y = std_dev, color = model, linetype = model,shapetype = model)) + 
+  geom_line()  + 
+  geom_point(data = df2, mapping = aes(x= n_edges, y = std_dev, shape = model), show.legend = NA, size = 2) +
+facet_grid(rows = vars(dataset), cols = vars(kernel), scales = "free_y") +
+  scale_linetype_manual(name = "model", values = linetypes ) + 
+  scale_shape_manual(name = "model", values = shapetypes) + 
+  scale_color_manual(name = "model", values = colortypes) + xlab("number of edges") +
+  ylab("std. deviation") +
+  theme_bw() +
+theme(
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    text=element_text(size=text.size), 
+    legend.text = element_text(size = legend.size)
+    )
+```
+
+## Not in paper: Dependence of accuracy on validation set for Imagenet-50
+
+```{r ev50, fig=TRUE, dev = c("png", "pdf")}
+load("data.frames/ev50.RData")
+df_inc <- inc_df
+dsm <- str_match(df_inc$dir, "(\\w+)/.*")
+df_inc$dataset = dsm[,2]
+df_inc$test_cases =  case_when(df_inc$dataset == "cifar10" ~ 10000,
+                          TRUE ~ 500)
+                          
+df <- df_inc%>% group_by(n_edges, model, kernel, dataset) %>% summarize(accuracy = mean(WLW2 /test_cases), nn = mean(nn/test_cases), .groups = 'drop')
+
+linetypes <- c("Petersen" = 0, "K5-5" = 0, "max1-edge"= 2, "max3-edge"= 1,
+               "max2-edge"= 4, "random-star" = 5)
+
+shapetypes <- c("Petersen" = 18, "K5-5" = 16, "max1-edge"= NA, "max3-edge"= NA,
+               "max2-edge"= NA, "random-star" = NA)
+
+colortypes <- c("Petersen" = "black", "K5-5" = "black", "max1-edge"= "darkgreen", "max3-edge"= "purple",
+               "max2-edge"= "blue", "random-star" = "red")
+
+ggplot(df, aes( x= n_edges, y = accuracy, color = model, linetype = model)) + geom_line(aes(linetype = model), size = 1) +
+  geom_hline(aes(yintercept = nn),size =1, linetype="dotted") + 
+   facet_grid(rows = vars(dataset), cols = vars(kernel), scales = "free_y")+theme(text=element_text(size=12))
+```

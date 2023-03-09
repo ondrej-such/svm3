@@ -1,0 +1,4 @@
+PKG_CXXFLAGS = -Wno-ignored-attributes
+PKG_LIBS = -lquadmath -llapack
+LDLIBS = -llapack
+LDFLAGS = -L/usr/lib/x86_64-linux-gnu -L/usr/lib/x86_64-linux-gnu/lapack
