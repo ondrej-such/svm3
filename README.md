@@ -41,10 +41,6 @@ Alternatively you can copy Makevars file included at the top level of the reposi
 
 We used Python 3.8.5 with standard torch, torchvision libraries. Detailed package list is in the file requirements.txt.
 
-## Github LFS 
-
-Neural network checkpoints are large files. You will need github's [LFS extension](https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage) installed in order to use them.
-
 
 # Rerunning analyses and experiments
 
@@ -58,7 +54,7 @@ subdirectory.  You can open it in RStudio and build analyses.html report.
 
 ## Train neural networks from scratch
 
-We have included 20 resnet-18 networks trained on 1000 class Imagenet in networks subdirectory. They were created using main2.py script. Suppose you want to create your own. Again you will need symbolic link named imagenet pointing to Imagenet data. Then simply issue
+You will need to create symbolic link named imagenet pointing to folder with Imagenet dataset. Then simply issue
 
 ```
 make clean; make all
